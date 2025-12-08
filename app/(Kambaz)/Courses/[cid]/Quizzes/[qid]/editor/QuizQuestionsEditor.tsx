@@ -116,6 +116,7 @@ export default function QuizQuestionsEditor({
     onSaveAndPublish(updatedQuiz);
   };
 
+  
   return (
     <div className="quiz-questions-editor">
       <div className="text-center mb-4">
