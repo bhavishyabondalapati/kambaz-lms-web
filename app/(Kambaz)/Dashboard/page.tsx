@@ -26,7 +26,7 @@ export default function Dashboard() {
   const fetchCourses = async () => {
     try {
       const courses = await client.findMyCourses();
-      dispatch(setCourses(courses));
+      dispatch(setCourses(courses || []));
       const enrollments = await client.findEnrollmentsForUser(currentUser._id);
       dispatch(setEnrollments(enrollments));
     } catch (error) {
@@ -61,7 +61,7 @@ export default function Dashboard() {
     await client.updateCourse(course);
     dispatch(
       setCourses(
-        courses.map((c: any) => {
+        courses?.map((c: any) => {
           if (c._id === course._id) {
             return course;
           } else {
@@ -175,10 +175,10 @@ export default function Dashboard() {
                     className="wd-dashboard-course-link text-decoration-none text-dark"
                     onClick={(e) => {
                       if (
-                        !enrollments.some(
+                        !enrollments?.some(
                           (enrollment: any) =>
-                            enrollment.user === currentUser._id &&
-                            enrollment.course === course._id
+                            enrollment?.user === currentUser?._id &&
+                            enrollment?.course === course?._id
                         )
                       ) {
                         e.preventDefault();
