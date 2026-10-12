@@ -7,7 +7,7 @@ interface QuizDetailsEditorProps {
   onSave: (quiz: any) => void;
   onSaveAndPublish: (quiz: any) => void;
   onCancel: () => void;
-  onChange?: (quiz: any) => void; // ADD THIS LINE
+  onChange?: (quiz: any) => void;
 }
 
 const toLocalInput = (value?: string) => {
@@ -22,7 +22,7 @@ export default function QuizDetailsEditor({
   onSave,
   onSaveAndPublish,
   onCancel,
-  onChange, // ADD THIS LINE
+  onChange,
 }: QuizDetailsEditorProps) {
   const [formData, setFormData] = useState({
     title: "",
@@ -72,13 +72,13 @@ export default function QuizDetailsEditor({
   const handleChange = (field: string, value: any) => {
     const updated = { ...formData, [field]: value };
     setFormData(updated);
-    
-    // Notify parent component of changes
+
+    // Notify parent of changes
     if (onChange) {
-      onChange({ 
-        ...quiz, 
+      onChange({
+        ...quiz,
         ...updated,
-        timeLimit: field === 'hasTimeLimit' && !value ? 0 : updated.timeLimit,
+        timeLimit: field === "hasTimeLimit" && !value ? 0 : updated.timeLimit,
         attemptsAllowed: updated.howManyAttempts,
       });
     }
@@ -115,32 +115,14 @@ export default function QuizDetailsEditor({
       {/* Quiz Instructions */}
       <Form.Group className="mb-3">
         <Form.Label className="fw-semibold">Quiz Instructions:</Form.Label>
-        <div
-          className="border rounded"
-          style={{
-            minHeight: "200px",
-            backgroundColor: "#fafafa",
-            padding: "10px",
-          }}
-        >
-          <Form.Control
-            as="textarea"
-            rows={6}
-            value={formData.description}
-            onChange={(e) => handleChange("description", e.target.value)}
-            placeholder="Enter quiz instructions..."
-            style={{
-              border: "none",
-              backgroundColor: "transparent",
-              resize: "none",
-            }}
-          />
-          <div className="text-end mt-2">
-            <small className="text-muted">
-              {formData.description.split(/\s+/).filter(Boolean).length} words
-            </small>
-          </div>
-        </div>
+        <Form.Control
+          as="textarea"
+          rows={6}
+          value={formData.description}
+          onChange={(e) => handleChange("description", e.target.value)}
+          placeholder="Enter quiz instructions..."
+          className="p-3"
+        />
       </Form.Group>
 
       {/* Quiz Type */}
@@ -175,7 +157,6 @@ export default function QuizDetailsEditor({
       <div className="mb-4">
         <h6 className="fw-semibold mb-3">Options</h6>
 
-        {/* Shuffle Answers */}
         <Form.Check
           type="checkbox"
           id="shuffleAnswers"
@@ -185,7 +166,6 @@ export default function QuizDetailsEditor({
           className="mb-2"
         />
 
-        {/* Time Limit */}
         <div className="mb-2">
           <Form.Check
             type="checkbox"
@@ -211,7 +191,6 @@ export default function QuizDetailsEditor({
           )}
         </div>
 
-        {/* Multiple Attempts */}
         <div className="mb-2">
           <Form.Check
             type="checkbox"
@@ -237,7 +216,6 @@ export default function QuizDetailsEditor({
           )}
         </div>
 
-        {/* Show Correct Answers */}
         <Form.Group className="mb-3 mt-3">
           <Form.Label className="fw-semibold">Show Correct Answers</Form.Label>
           <Form.Select
@@ -250,7 +228,6 @@ export default function QuizDetailsEditor({
           </Form.Select>
         </Form.Group>
 
-        {/* Access Code */}
         <Form.Group className="mb-3">
           <Form.Label className="fw-semibold">Access Code</Form.Label>
           <Form.Control
@@ -264,7 +241,6 @@ export default function QuizDetailsEditor({
           </Form.Text>
         </Form.Group>
 
-        {/* Other toggles */}
         <Form.Check
           type="checkbox"
           id="oneQuestionAtATime"
@@ -296,21 +272,16 @@ export default function QuizDetailsEditor({
       </div>
 
       {/* Assign Section */}
-      <div
-        className="border rounded p-3 mb-4"
-        style={{ backgroundColor: "#f9f9f9" }}
-      >
+      <div className="border rounded p-3 mb-4" style={{ backgroundColor: "#f9f9f9" }}>
         <h6 className="fw-semibold mb-3">Assign</h6>
 
-        {/* Assign to */}
         <Form.Group className="mb-3">
           <Form.Label className="fw-semibold">Assign to</Form.Label>
           <div className="border rounded p-2 bg-white">
-            <span className="badge bg-secondary">Everyone ✕</span>
+            <span className="badge bg-secondary">Everyone</span>
           </div>
         </Form.Group>
 
-        {/* Due Date */}
         <Form.Group className="mb-3">
           <Form.Label className="fw-semibold">Due</Form.Label>
           <Form.Control
@@ -320,7 +291,6 @@ export default function QuizDetailsEditor({
           />
         </Form.Group>
 
-        {/* Available From and Until */}
         <Row className="mb-3">
           <Col md={6}>
             <Form.Label className="fw-semibold">Available from</Form.Label>

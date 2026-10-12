@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+"use client";
+
 import { useState, useEffect } from "react";
-import { Form, Button, Alert } from "react-bootstrap";
-import { FaTrash, FaCheck } from "react-icons/fa";
+import { Form, Button } from "react-bootstrap";
+import { FaTrash, FaCheck, FaCheckSquare } from "react-icons/fa";
 
 interface QuestionEditorProps {
   question: any;
@@ -10,75 +12,175 @@ interface QuestionEditorProps {
   onDelete: () => void;
 }
 
+type QuestionType = "multiple-choice" | "true-false" | "fill-in-blank";
+
+type Choice = {
+  text: string;
+  correct: boolean;
+};
+
+interface FormState {
+  title: string;
+  type: QuestionType;
+  points: number;
+  question: string;
+  choices: Choice[];
+  correctAnswer: any;
+  blanks: string[];
+  allowMultipleAnswers: boolean;
+}
+
+const defaultChoices: Choice[] = [
+  { text: "", correct: true },
+  { text: "", correct: false },
+  { text: "", correct: false },
+];
+
 export default function QuestionEditor({
   question,
   onSave,
   onCancel,
   onDelete,
 }: QuestionEditorProps) {
-  const [formData, setFormData] = useState({
-    title: "",
+  const [formData, setFormData] = useState<FormState>({
+    title: "Question",
     type: "multiple-choice",
     points: 4,
     question: "",
-    choices: [] as any[],
-    correctAnswer: null as boolean | null,
-    blanks: [] as string[],
+    choices: defaultChoices,
+    correctAnswer: null,
+    blanks: [""],
+    allowMultipleAnswers: false,
   });
 
+  // Initialize form from incoming question (both old and new formats)
   useEffect(() => {
+    if (!question) return;
+
+    const type: QuestionType =
+      (question.type as QuestionType) || "multiple-choice";
+
+    const points = typeof question.points === "number" ? question.points : 4;
+    const title = question.title || "Question";
+    const questionText = question.question || "";
+    const rawCorrect = question.correctAnswer;
+    const allowMultiple =
+      Array.isArray(rawCorrect) || question.allowMultipleAnswers || false;
+
+    let choices: Choice[] = [];
+    let blanks: string[] = [];
+    let correctAnswer: any = rawCorrect ?? null;
+
+    if (type === "multiple-choice") {
+      // Build choices from various possible shapes
+      if (Array.isArray(question.choices) && question.choices.length > 0) {
+        if (typeof question.choices[0] === "string") {
+          // choices as strings
+          choices = question.choices.map((text: string) => ({
+            text,
+            correct: allowMultiple
+              ? Array.isArray(rawCorrect)
+                ? rawCorrect.includes(text)
+                : rawCorrect === text
+              : rawCorrect === text,
+          }));
+        } else {
+          // choices as { text, correct }
+          choices = question.choices.map((c: any) => ({
+            text: c.text ?? "",
+            correct: !!c.correct,
+          }));
+        }
+      } else if (Array.isArray(question.options) && question.options.length > 0) {
+        choices = question.options.map((text: string) => ({
+          text,
+          correct: allowMultiple
+            ? Array.isArray(rawCorrect)
+              ? rawCorrect.includes(text)
+              : rawCorrect === text
+            : rawCorrect === text,
+        }));
+      } else {
+        choices = defaultChoices;
+      }
+    }
+
+    if (type === "true-false") {
+      // Normalize to boolean; default to true
+      correctAnswer =
+        typeof rawCorrect === "boolean"
+          ? rawCorrect
+          : rawCorrect === "false"
+          ? false
+          : true;
+    }
+
+    if (type === "fill-in-blank") {
+      if (Array.isArray(question.blanks) && question.blanks.length > 0) {
+        blanks = question.blanks.map((b: any) => String(b ?? ""));
+      } else if (Array.isArray(rawCorrect) && rawCorrect.length > 0) {
+        blanks = rawCorrect.map((b: any) => String(b ?? ""));
+      } else if (typeof rawCorrect === "string" && rawCorrect.trim() !== "") {
+        blanks = [rawCorrect];
+      } else {
+        blanks = [""];
+      }
+      correctAnswer = blanks;
+    }
+
     setFormData({
-      title: question.title || "Question",
-      type: question.type || "multiple-choice",
-      points: question.points || 4,
-      question: question.question || "",
-      choices: question.choices && question.choices.length > 0
-        ? question.choices
-        : [
-            { text: "", correct: true },
-            { text: "", correct: false },
-            { text: "", correct: false },
-          ],
-      correctAnswer: question.correctAnswer !== undefined ? question.correctAnswer : true,
-      blanks: question.blanks && question.blanks.length > 0 ? question.blanks : [""],
+      title,
+      type,
+      points,
+      question: questionText,
+      choices: choices.length > 0 ? choices : defaultChoices,
+      correctAnswer,
+      blanks: blanks.length > 0 ? blanks : [""],
+      allowMultipleAnswers: allowMultiple,
     });
   }, [question]);
 
-  const handleChange = (field: string, value: any) => {
+  const handleChange = (field: keyof FormState, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleTypeChange = (newType: string) => {
-    const resetData: any = {
-      title: formData.title,
-      type: newType,
-      points: formData.points,
-      question: formData.question,
-    };
+  const handleTypeChange = (newType: QuestionType) => {
+    setFormData((prev) => {
+      const base: FormState = {
+        ...prev,
+        type: newType,
+        allowMultipleAnswers: false,
+      };
 
-    switch (newType) {
-      case "multiple-choice":
-        resetData.choices = [
-          { text: "", correct: true },
-          { text: "", correct: false },
-          { text: "", correct: false },
-        ];
-        break;
-      case "true-false":
-        resetData.correctAnswer = true;
-        break;
-      case "fill-in-blank":
-        resetData.blanks = [""];
-        break;
-      case "fill-in-multiple-blanks":
-        resetData.blanks = ["", "", ""];
-        break;
-    }
+      if (newType === "multiple-choice") {
+        return {
+          ...base,
+          choices: defaultChoices,
+          correctAnswer: null,
+          blanks: [""],
+        };
+      }
 
-    setFormData(resetData);
+      if (newType === "true-false") {
+        return {
+          ...base,
+          correctAnswer: true,
+          choices: [],
+          blanks: [""],
+        };
+      }
+
+      // fill-in-blank
+      return {
+        ...base,
+        blanks: [""],
+        correctAnswer: [""],
+        choices: [],
+      };
+    });
   };
 
-  // Multiple Choice handlers
+  // MULTIPLE CHOICE handlers
   const handleAddChoice = () => {
     setFormData((prev) => ({
       ...prev,
@@ -103,15 +205,26 @@ export default function QuestionEditor({
   };
 
   const handleCorrectChoiceChange = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      choices: prev.choices.map((choice, i) =>
-        i === index ? { ...choice, correct: true } : { ...choice, correct: false }
-      ),
-    }));
+    setFormData((prev) => {
+      if (prev.allowMultipleAnswers) {
+        return {
+          ...prev,
+          choices: prev.choices.map((choice, i) =>
+            i === index ? { ...choice, correct: !choice.correct } : choice
+          ),
+        };
+      }
+      return {
+        ...prev,
+        choices: prev.choices.map((choice, i) => ({
+          ...choice,
+          correct: i === index,
+        })),
+      };
+    });
   };
 
-  // Fill in the blank handlers
+  // FILL-IN-BLANK handlers
   const handleAddBlank = () => {
     setFormData((prev) => ({
       ...prev,
@@ -133,31 +246,61 @@ export default function QuestionEditor({
     }));
   };
 
+  const buildPayload = (): any => {
+    const payload: any = {
+      ...question, // keep _id and any extra fields
+      title: formData.title,
+      type: formData.type,
+      points: formData.points,
+      question: formData.question,
+      allowMultipleAnswers: formData.allowMultipleAnswers,
+    };
+
+    if (formData.type === "multiple-choice") {
+      payload.choices = formData.choices.map((c) => ({
+        text: c.text,
+        correct: !!c.correct,
+      }));
+
+      if (formData.allowMultipleAnswers) {
+        const correctTexts = formData.choices
+          .filter((c) => c.correct)
+          .map((c) => c.text || "");
+        payload.correctAnswer = correctTexts;
+      } else {
+        const correctChoice = formData.choices.find((c) => c.correct);
+        payload.correctAnswer = correctChoice ? correctChoice.text || "" : null;
+      }
+    }
+
+    if (formData.type === "true-false") {
+      payload.correctAnswer =
+        formData.correctAnswer === false ? false : true; // default to true
+      payload.choices = undefined;
+      payload.blanks = undefined;
+    }
+
+    if (formData.type === "fill-in-blank") {
+      const cleanedBlanks = formData.blanks.map((b) => b || "");
+      payload.blanks = cleanedBlanks;
+      payload.correctAnswer = cleanedBlanks;
+      payload.choices = undefined;
+    }
+
+    return payload;
+  };
+
   const handleSubmit = () => {
-    const payload: any = { ...formData };
-
-    // For multiple choice
-    if (payload.type === "multiple-choice") {
-      const correctChoice = payload.choices.find((c: any) => c.correct);
-      payload.correctAnswer = correctChoice ? (correctChoice.text || "") : null;
-    }
-
-    // For single fill-in-blank
-    if (payload.type === "fill-in-blank" && Array.isArray(payload.blanks)) {
-      payload.correctAnswer = payload.blanks[0] || "";
-    }
-
-    // For multiple blanks - store array of correct answers
-    if (payload.type === "fill-in-multiple-blanks") {
-      payload.correctAnswer = payload.blanks;
-    }
-
+    const payload = buildPayload();
     onSave(payload);
   };
 
   return (
-    <div className="border rounded p-4 bg-white mb-3" style={{ boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
-      {/* Question Header */}
+    <div
+      className="border rounded p-4 bg-white mb-3"
+      style={{ boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}
+    >
+      {/* Header */}
       <div className="row mb-3">
         <div className="col-md-4">
           <Form.Control
@@ -170,11 +313,13 @@ export default function QuestionEditor({
         <div className="col-md-5">
           <Form.Select
             value={formData.type}
-            onChange={(e) => handleTypeChange(e.target.value)}
+            onChange={(e) =>
+              handleTypeChange(e.target.value as QuestionType)
+            }
           >
             <option value="multiple-choice">Multiple Choice</option>
             <option value="true-false">True/False</option>
-            <option value="fill-in-blank">Fill in the Blank</option>
+            <option value="fill-in-blank">Fill in the Blanks</option>
           </Form.Select>
         </div>
         <div className="col-md-3">
@@ -183,25 +328,27 @@ export default function QuestionEditor({
             <Form.Control
               type="number"
               value={formData.points}
-              onChange={(e) => handleChange("points", parseInt(e.target.value) || 0)}
-              min="0"
-              style={{ width: "70px" }}
+              onChange={(e) =>
+                handleChange("points", parseInt(e.target.value, 10) || 0)
+              }
+              min={0}
+              style={{ width: "80px" }}
             />
           </div>
         </div>
       </div>
 
-      {/* Instruction Text */}
+      {/* Helper text */}
       <p className="text-muted small mb-3">
         {formData.type === "multiple-choice" &&
-          "Enter your question and multiple answers, then select the one correct answer."}
+          "Enter the question and multiple answers, then mark which answers are correct."}
         {formData.type === "true-false" &&
-          "Enter your question text, then select if True or False is the correct answer."}
+          "Enter the question text, then choose whether True or False is correct."}
         {formData.type === "fill-in-blank" &&
-          "Enter your question. For multiple blanks, use [1], [2], etc. Then define the correct answer for each blank. Students get partial credit for each correct blank."}
+          "Enter the question text and the correct answers for each blank."}
       </p>
 
-      {/* Question Text */}
+      {/* Question text */}
       <Form.Group className="mb-4">
         <Form.Label className="fw-semibold">Question:</Form.Label>
         <div className="border rounded" style={{ backgroundColor: "#fafafa" }}>
@@ -211,24 +358,31 @@ export default function QuestionEditor({
             value={formData.question}
             onChange={(e) => handleChange("question", e.target.value)}
             placeholder={
-              formData.type === "fill-in-multiple-blanks"
-                ? 'Example: "The [1] is the largest planet in our solar system, and [2] is the smallest."'
-                : "Enter your question"
+              formData.type === "fill-in-blank"
+                ? 'Example: "The ___1___ is the largest planet, and ___2___ is the smallest."'
+                : "Enter your question text"
             }
             style={{ border: "none", resize: "none" }}
             className="p-3"
           />
         </div>
-        {formData.type === "fill-in-multiple-blanks" && (
-          <Form.Text className="text-muted">
-            Use [1], [2], [3], etc. to mark where blanks should appear. Students will see input boxes numbered accordingly.
-          </Form.Text>
-        )}
       </Form.Group>
 
       {/* MULTIPLE CHOICE */}
       {formData.type === "multiple-choice" && (
         <div className="mb-4">
+          <div className="mb-3">
+            <Form.Check
+              type="checkbox"
+              id="allowMultipleAnswers"
+              label="Allow multiple correct answers"
+              checked={formData.allowMultipleAnswers}
+              onChange={(e) =>
+                handleChange("allowMultipleAnswers", e.target.checked)
+              }
+            />
+          </div>
+
           <Form.Label className="fw-semibold">Answers:</Form.Label>
           {formData.choices.map((choice, index) => (
             <div key={index} className="mb-3">
@@ -240,8 +394,22 @@ export default function QuestionEditor({
                     onClick={() => handleCorrectChoiceChange(index)}
                     style={{ textDecoration: "none" }}
                   >
-                    {choice.correct ? (
-                      <FaCheck className="text-success" style={{ fontSize: "20px" }} />
+                    {formData.allowMultipleAnswers ? (
+                      choice.correct ? (
+                        <FaCheckSquare
+                          className="text-success"
+                          style={{ fontSize: "20px" }}
+                        />
+                      ) : (
+                        <span style={{ color: "#ccc", fontSize: "20px" }}>
+                          □
+                        </span>
+                      )
+                    ) : choice.correct ? (
+                      <FaCheck
+                        className="text-success"
+                        style={{ fontSize: "20px" }}
+                      />
                     ) : (
                       <span style={{ color: "#ccc", fontSize: "20px" }}>○</span>
                     )}
@@ -250,11 +418,14 @@ export default function QuestionEditor({
                 <div className="flex-grow-1">
                   <div className="small text-muted mb-1">
                     {choice.correct ? "Correct Answer" : "Possible Answer"}
+                    {formData.allowMultipleAnswers && choice.correct && " (Multiple allowed)"}
                   </div>
                   <Form.Control
                     type="text"
                     value={choice.text}
-                    onChange={(e) => handleChoiceTextChange(index, e.target.value)}
+                    onChange={(e) =>
+                      handleChoiceTextChange(index, e.target.value)
+                    }
                     placeholder={`Answer ${index + 1}`}
                   />
                 </div>
@@ -287,7 +458,7 @@ export default function QuestionEditor({
       {/* TRUE/FALSE */}
       {formData.type === "true-false" && (
         <div className="mb-4">
-          <Form.Label className="fw-semibold">Answers:</Form.Label>
+          <Form.Label className="fw-semibold">Correct Answer:</Form.Label>
           <div className="mb-2 d-flex align-items-center gap-2">
             <button
               type="button"
@@ -296,7 +467,10 @@ export default function QuestionEditor({
               style={{ textDecoration: "none" }}
             >
               {formData.correctAnswer === true ? (
-                <FaCheck className="text-success" style={{ fontSize: "20px" }} />
+                <FaCheck
+                  className="text-success"
+                  style={{ fontSize: "20px" }}
+                />
               ) : (
                 <span style={{ color: "#ccc", fontSize: "20px" }}>○</span>
               )}
@@ -311,7 +485,10 @@ export default function QuestionEditor({
               style={{ textDecoration: "none" }}
             >
               {formData.correctAnswer === false ? (
-                <FaCheck className="text-success" style={{ fontSize: "20px" }} />
+                <FaCheck
+                  className="text-success"
+                  style={{ fontSize: "20px" }}
+                />
               ) : (
                 <span style={{ color: "#ccc", fontSize: "20px" }}>○</span>
               )}
@@ -321,31 +498,27 @@ export default function QuestionEditor({
         </div>
       )}
 
-      {/* FILL IN THE BLANK */}
+      {/* FILL-IN-BLANK */}
       {formData.type === "fill-in-blank" && (
         <div className="mb-4">
-          <Form.Label className="fw-semibold">Blanks:</Form.Label>
+          <Form.Label className="fw-semibold">
+            Correct Answers for Each Blank:
+          </Form.Label>
           <p className="text-muted small">
-            {formData.blanks.length === 1 
-              ? "Single blank - student must match one of the answers below (case-insensitive)."
-              : `Multiple blanks - use [1], [2], [3], etc. in question text. Each blank worth ${(formData.points / Math.max(1, formData.blanks.length)).toFixed(1)} points.`
-            }
+            Define the correct answer for each blank. Answers are
+            case-insensitive.
           </p>
-          
           {formData.blanks.map((blank, index) => (
             <div key={index} className="mb-3 border rounded p-3 bg-light">
               <div className="d-flex align-items-center gap-2 mb-2">
-                <span className="badge bg-primary">Blank {index + 1}</span>
-                <span className="fw-semibold">
-                  Worth: {(formData.points / Math.max(1, formData.blanks.length)).toFixed(1)} pts
-                </span>
+                <span className="fw-semibold">Blank {index + 1}</span>
                 {formData.blanks.length > 1 && (
                   <button
                     type="button"
-                    className="btn btn-link text-danger p-0 ms-auto"
+                    className="btn btn-link text-secondary p-0 ms-auto"
                     onClick={() => handleRemoveBlank(index)}
                   >
-                    <FaTrash /> Remove
+                    <FaTrash />
                   </button>
                 )}
               </div>
@@ -353,14 +526,17 @@ export default function QuestionEditor({
                 type="text"
                 value={blank}
                 onChange={(e) => handleBlankChange(index, e.target.value)}
-                placeholder={`Correct answer for Blank ${index + 1}`}
+                placeholder={`Correct answer for blank [${index + 1}]`}
               />
               <Form.Text className="text-muted">
-                Student must match this exactly (case-insensitive)
+                Worth{" "}
+                {(
+                  formData.points / Math.max(1, formData.blanks.length)
+                ).toFixed(2)}{" "}
+                points
               </Form.Text>
             </div>
           ))}
-          
           <div className="text-center mt-3">
             <Button
               variant="link"
@@ -373,27 +549,21 @@ export default function QuestionEditor({
         </div>
       )}
 
-      {/* Action Buttons */}
+      {/* Footer buttons */}
       <div className="d-flex justify-content-between pt-3 border-top">
         <div className="d-flex gap-2">
-          <Button 
-            variant="light" 
+          <Button
+            variant="light"
             onClick={onCancel}
             style={{ border: "1px solid #ccc" }}
           >
             Cancel
           </Button>
-          <Button 
-            variant="outline-danger" 
-            onClick={onDelete}
-          >
+          <Button variant="outline-danger" onClick={onDelete}>
             Delete Question
           </Button>
         </div>
-        <Button 
-          variant="danger" 
-          onClick={handleSubmit}
-        >
+        <Button variant="danger" onClick={handleSubmit}>
           Update Question
         </Button>
       </div>

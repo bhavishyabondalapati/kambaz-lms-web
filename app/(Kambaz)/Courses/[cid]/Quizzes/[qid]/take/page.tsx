@@ -22,103 +22,88 @@ export default function QuizTakingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Access code state
+
   const [showAccessCodeModal, setShowAccessCodeModal] = useState(false);
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [accessCodeError, setAccessCodeError] = useState("");
-  
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
 
-  // FIXED: Better question type detection that doesn't overlap
   const getQuestionType = (q: any): "multiple-choice" | "true-false" | "fill-in-blank" => {
-    // First check explicit type field
+    // PRIORITY 1: Check explicit type field first
     const explicitType = (q.type || q.questionType || "").toString().toLowerCase().trim();
     
-    // Check by explicit type first
     if (explicitType.includes("true") || explicitType.includes("false")) {
       return "true-false";
     }
+    
     if (explicitType.includes("fill") || explicitType.includes("blank")) {
       return "fill-in-blank";
     }
+    
     if (explicitType.includes("multiple") || explicitType.includes("choice")) {
       return "multiple-choice";
     }
     
-    // Check by data structure (fallback)
-    // 1. True/False: has boolean correctAnswer OR no choices/options/blanks
+    // PRIORITY 2: Check by data structure (only if type is ambiguous)
+    
+    // Check for true/false by correctAnswer type
     if (typeof q.correctAnswer === "boolean") {
       return "true-false";
     }
     
-    // 2. Fill in Blank: has blanks array
+    // Check for multiple choice by presence of choices/options
+    // IMPORTANT: Check this BEFORE checking blanks
+    if ((Array.isArray(q.choices) && q.choices.length > 0) ||
+        (Array.isArray(q.options) && q.options.length > 0)) {
+      return "multiple-choice";
+    }
+    
+    // Check for fill-in-blank LAST
     if (Array.isArray(q.blanks) && q.blanks.length > 0) {
       return "fill-in-blank";
     }
     
-    // 3. Multiple Choice: has choices/options (default)
-    if (Array.isArray(q.choices) && q.choices.length > 0) {
-      return "multiple-choice";
-    }
-    if (Array.isArray(q.options) && q.options.length > 0) {
-      return "multiple-choice";
-    }
-    
-    // Default to multiple choice
+    // DEFAULT: Return multiple-choice if nothing else matches
     return "multiple-choice";
   };
 
-  // Check if quiz is available
   const checkAvailability = (quizData: any) => {
     const now = new Date();
-    
-    // Check if published
     if (!quizData.published) {
       setError("This quiz is not published yet");
       return false;
     }
-    
-    // Check available date
     if (quizData.availableDate && new Date(quizData.availableDate) > now) {
       setError(`This quiz is not available until ${new Date(quizData.availableDate).toLocaleString()}`);
       return false;
     }
-    
-    // Check until date (closed)
     if (quizData.untilDate && new Date(quizData.untilDate) < now) {
       setError("This quiz is no longer available (Closed)");
       return false;
     }
-    
     return true;
   };
 
-  // Load quiz and check access
   useEffect(() => {
     const loadQuizAndAttempt = async () => {
       try {
         setLoading(true);
-        
-        // Get quiz data
         const quizData = await quizClient.findQuizById(qid);
         setQuiz(quizData);
 
-        // Check availability FIRST
         if (!checkAvailability(quizData)) {
           setLoading(false);
           return;
         }
 
-        // Check if access code is required
         if (quizData.accessCode && quizData.accessCode.trim() !== "") {
           setShowAccessCodeModal(true);
           setLoading(false);
           return;
         }
 
-        // If no access code, proceed to load attempt
         await initializeAttempt(quizData);
         setLoading(false);
       } catch (error) {
@@ -130,7 +115,6 @@ export default function QuizTakingPage() {
 
     loadQuizAndAttempt();
 
-    // Cleanup timers on unmount
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
@@ -138,20 +122,16 @@ export default function QuizTakingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qid]);
 
-  // Initialize or resume attempt
   const initializeAttempt = async (quizData: any) => {
     try {
-      // Check for in-progress attempt
       let attemptData = await attemptClient.getInProgressAttempt(qid);
-      
+
       if (!attemptData) {
-        // Start new attempt
         attemptData = await attemptClient.startQuizAttempt(qid);
       }
 
       setAttempt(attemptData);
 
-      // Load existing answers
       if (attemptData.answers && attemptData.answers.length > 0) {
         const answersMap: Record<string, any> = {};
         attemptData.answers.forEach((ans: any) => {
@@ -160,7 +140,6 @@ export default function QuizTakingPage() {
         setAnswers(answersMap);
       }
 
-      // Calculate time remaining
       if (quizData.timeLimit && quizData.timeLimit > 0) {
         const startTime = new Date(attemptData.startedAt).getTime();
         const now = new Date().getTime();
@@ -174,15 +153,12 @@ export default function QuizTakingPage() {
     }
   };
 
-  // Verify access code
   const handleAccessCodeSubmit = async () => {
     if (!quiz) return;
-    
+
     if (accessCodeInput.trim() === quiz.accessCode.trim()) {
       setShowAccessCodeModal(false);
       setAccessCodeError("");
-      
-      // Now initialize the attempt
       await initializeAttempt(quiz);
       setLoading(false);
     } else {
@@ -190,7 +166,6 @@ export default function QuizTakingPage() {
     }
   };
 
-  // Timer countdown
   useEffect(() => {
     if (timeRemaining === null || timeRemaining <= 0) return;
 
@@ -210,19 +185,17 @@ export default function QuizTakingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRemaining]);
 
-  // Format time remaining
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    
+
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
     }
     return `${minutes}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Auto-save answer when it changes
   const saveAnswerDebounced = (questionId: string, questionType: string, answer: any) => {
     if (autoSaveRef.current) {
       clearTimeout(autoSaveRef.current);
@@ -231,12 +204,8 @@ export default function QuizTakingPage() {
     autoSaveRef.current = setTimeout(async () => {
       if (attempt) {
         try {
-          await attemptClient.saveQuestionAnswer(
-            attempt._id,
-            questionId,
-            questionType,
-            answer
-          );
+          await attemptClient.saveQuestionAnswer(attempt._id, questionId, questionType, answer);
+          console.log("Auto-saved answer:", questionId, answer);
         } catch (error) {
           console.error("Error auto-saving answer:", error);
         }
@@ -247,15 +216,33 @@ export default function QuizTakingPage() {
   const handleAnswerChange = (value: any) => {
     const questionId = currentQuestionIndex.toString();
     const currentQuestion = quiz.questions[currentQuestionIndex];
-    const questionType = getQuestionType(currentQuestion);
+    const questionType = currentQuestion.type || currentQuestion.questionType || "multiple-choice";
 
     setAnswers((prev) => ({
       ...prev,
       [questionId]: value,
     }));
 
-    // Auto-save
     saveAnswerDebounced(questionId, questionType, value);
+  };
+
+  const handleBlankAnswerChange = (blankIndex: number, value: string) => {
+    const questionId = currentQuestionIndex.toString();
+    const currentQuestion = quiz.questions[currentQuestionIndex];
+    const questionType = currentQuestion.type || currentQuestion.questionType || "fill-in-blank";
+
+    const currentAnswers = answers[questionId] || {};
+    const updatedAnswers = {
+      ...currentAnswers,
+      [blankIndex]: value,
+    };
+
+    setAnswers((prev) => ({
+      ...prev,
+      [questionId]: updatedAnswers,
+    }));
+
+    saveAnswerDebounced(questionId, questionType, updatedAnswers);
   };
 
   const handleNext = () => {
@@ -270,33 +257,22 @@ export default function QuizTakingPage() {
     }
   };
 
-  // Auto-submit when time expires
   const handleAutoSubmit = async () => {
-    if (isSubmitting) return;
-    
+    if (isSubmitting || !attempt) return;
+
     setIsSubmitting(true);
 
     try {
-      // Save all current answers first
       const savePromises = Object.entries(answers).map(([questionId, answer]) => {
         const questionIndex = parseInt(questionId);
         const question = quiz.questions[questionIndex];
-        const questionType = getQuestionType(question);
-        
-        return attemptClient.saveQuestionAnswer(
-          attempt._id,
-          questionId,
-          questionType,
-          answer
-        );
+        const questionType = question?.type || question?.questionType || "multiple-choice";
+
+        return attemptClient.saveQuestionAnswer(attempt._id, questionId, questionType, answer);
       });
 
       await Promise.all(savePromises);
-
-      // Submit quiz for grading
       await attemptClient.submitQuiz(attempt._id);
-
-      // Redirect to results page
       router.push(`/Courses/${cid}/Quizzes/${qid}/attempt/${attempt._id}`);
     } catch (error) {
       console.error("Error auto-submitting quiz:", error);
@@ -305,7 +281,6 @@ export default function QuizTakingPage() {
     }
   };
 
-  // Manual submit - NO "all questions required" check
   const handleSubmit = async () => {
     const confirmSubmit = window.confirm(
       "Are you sure you want to submit this quiz? You cannot change your answers after submission."
@@ -313,33 +288,28 @@ export default function QuizTakingPage() {
 
     if (!confirmSubmit) return;
 
+    if (!attempt) {
+      alert("No active attempt found. Please try again.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // Save all answers first
       const savePromises = Object.entries(answers).map(([questionId, answer]) => {
         const questionIndex = parseInt(questionId);
         const question = quiz.questions[questionIndex];
-        const questionType = getQuestionType(question);
-        
-        return attemptClient.saveQuestionAnswer(
-          attempt._id,
-          questionId,
-          questionType,
-          answer
-        );
+        const questionType = question?.type || question?.questionType || "multiple-choice";
+
+        return attemptClient.saveQuestionAnswer(attempt._id, questionId, questionType, answer);
       });
 
       await Promise.all(savePromises);
-
-      // Submit quiz for grading
       await attemptClient.submitQuiz(attempt._id);
-
-      // Redirect to results page
       router.push(`/Courses/${cid}/Quizzes/${qid}/attempt/${attempt._id}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error submitting quiz:", error);
-      alert("Error submitting quiz. Please try again.");
+      alert(`Error submitting quiz: ${error.response?.data?.message || error.message || "Unknown error"}`);
       setIsSubmitting(false);
     }
   };
@@ -409,9 +379,7 @@ export default function QuizTakingPage() {
   if (!quiz || !attempt || !quiz.questions || quiz.questions.length === 0) {
     return (
       <Container className="mt-3">
-        <Alert variant="warning">
-          Quiz not found or has no questions.
-        </Alert>
+        <Alert variant="warning">Quiz not found or has no questions.</Alert>
         <Button onClick={() => router.push(`/Courses/${cid}/Quizzes/${qid}`)}>
           Back to Quiz Details
         </Button>
@@ -422,31 +390,36 @@ export default function QuizTakingPage() {
   const currentQuestion = quiz.questions[currentQuestionIndex];
   const questionId = currentQuestionIndex.toString();
   const questionType = getQuestionType(currentQuestion);
+  const allowMultipleAnswers = currentQuestion.allowMultipleAnswers || false;
+
+  const isAnswered = (qIdx: number) => {
+    const value = answers[qIdx.toString()];
+    if (value === undefined || value === null) return false;
+    if (typeof value === "object" && !Array.isArray(value)) {
+      return Object.values(value).some((v) => v !== "" && v !== undefined);
+    }
+    if (Array.isArray(value)) {
+      return value.length > 0 && value.some(v => v !== "" && v !== undefined);
+    }
+    return value !== "";
+  };
 
   return (
     <Container className="mt-4" style={{ maxWidth: "900px" }}>
-      {/* PROMINENT TIMER WARNING */}
+      {/* Timer Warning */}
       {timeRemaining !== null && timeRemaining <= 600 && (
-        <Card 
-          className={`mb-3 ${timeRemaining < 120 ? 'border-danger' : 'border-warning'}`}
-          style={{ borderWidth: '3px' }}
-        >
+        <Card className={`mb-3 ${timeRemaining < 120 ? "border-danger" : "border-warning"}`} style={{ borderWidth: "3px" }}>
           <Card.Body className="p-3">
             <div className="d-flex align-items-center justify-content-between">
               <div>
-                <h5 className={`mb-0 ${timeRemaining < 120 ? 'text-danger' : 'text-warning'}`}>
+                <h5 className={`mb-0 ${timeRemaining < 120 ? "text-danger" : "text-warning"}`}>
                   ⏰ TIME REMAINING
                 </h5>
                 {timeRemaining < 120 && (
-                  <strong className="text-danger">
-                    ⚠️ WARNING: Less than 2 minutes remaining!
-                  </strong>
+                  <strong className="text-danger">⚠️ WARNING: Less than 2 minutes remaining!</strong>
                 )}
               </div>
-              <div 
-                className={`fs-1 fw-bold ${timeRemaining < 120 ? 'text-danger' : 'text-warning'}`}
-                style={{ fontFamily: 'monospace' }}
-              >
+              <div className={`fs-1 fw-bold ${timeRemaining < 120 ? "text-danger" : "text-warning"}`} style={{ fontFamily: "monospace" }}>
                 {formatTime(timeRemaining)}
               </div>
             </div>
@@ -455,19 +428,15 @@ export default function QuizTakingPage() {
       )}
 
       <div className="row">
-        {/* Main Quiz Area */}
         <div className="col-md-8">
-          {/* Quiz Title */}
           <h3 className="mb-3">{quiz.title}</h3>
 
-          {/* Attempt Info */}
           <div className="mb-3">
             <small className="text-muted">
               Attempt {attempt.attemptNumber} • Started: {new Date(attempt.startedAt).toLocaleString()}
             </small>
           </div>
 
-          {/* Quiz Instructions - Show on first question */}
           {currentQuestionIndex === 0 && quiz.description && (
             <Alert variant="info" className="mb-4">
               <strong>Quiz Instructions:</strong>
@@ -478,121 +447,175 @@ export default function QuizTakingPage() {
           {/* Question Display */}
           <div className="border rounded p-4 bg-white mb-4 shadow-sm">
             <div className="d-flex justify-content-between align-items-start mb-3">
-              <h5>
-                Question {currentQuestionIndex + 1} of {quiz.questions.length}
-              </h5>
-              <span className="badge bg-secondary fs-6">
-                {currentQuestion.points || 0} pts
-              </span>
-              <span className="badge bg-info">
-                {questionType === "multiple-choice" && "Multiple Choice"}
-                {questionType === "true-false" && "True/False"}
-                {questionType === "fill-in-blank" && "Fill in Blank"}
-              </span>
+              <h5>Question {currentQuestionIndex + 1} of {quiz.questions.length}</h5>
+              <span className="badge bg-secondary fs-6">{currentQuestion.points || 0} pts</span>
             </div>
 
-            {/* Question text */}
-            <div
-              className="mb-4"
-              dangerouslySetInnerHTML={{
-                __html: currentQuestion.question || "<p>No question text</p>",
-              }}
-            />
+            <div className="mb-4" dangerouslySetInnerHTML={{ __html: currentQuestion.question || "<p>No question text</p>" }} />
 
-            {/* RENDER BASED ON QUESTION TYPE - FIXED: No overlap */}
-            {questionType === "fill-in-blank" && (
-              <div>
-                <Form.Label className="fw-semibold">Your Answer:</Form.Label>
-                <Form.Control
-                  type="text"
-                  value={answers[questionId] ?? ""}
-                  onChange={(e) => handleAnswerChange(e.target.value)}
-                  placeholder="Type your answer here"
-                  style={{ maxWidth: "400px" }}
-                  className="fs-5"
-                />
-              </div>
-            )}
-            
-            {questionType === "true-false" && (
-              <div>
-                <div className="mb-3 p-2 border rounded" style={{ cursor: 'pointer' }}>
-                  <Form.Check
-                    type="radio"
-                    id={`tf-${questionId}-true`}
-                    name={`question-${questionId}`}
-                    label="True"
-                    className="fs-5"
-                    checked={answers[questionId] === true}
-                    onChange={() => handleAnswerChange(true)}
-                  />
-                </div>
-                <div className="mb-3 p-2 border rounded" style={{ cursor: 'pointer' }}>
-                  <Form.Check
-                    type="radio"
-                    id={`tf-${questionId}-false`}
-                    name={`question-${questionId}`}
-                    label="False"
-                    className="fs-5"
-                    checked={answers[questionId] === false}
-                    onChange={() => handleAnswerChange(false)}
-                  />
-                </div>
-              </div>
-            )}
-            
+            {/* MULTIPLE CHOICE - Clickable boxes */}
             {questionType === "multiple-choice" && (
               <div>
                 {(() => {
                   let choicesList: any[] = [];
-                  
                   if (Array.isArray(currentQuestion.choices) && currentQuestion.choices.length > 0) {
                     choicesList = currentQuestion.choices;
                   } else if (Array.isArray(currentQuestion.options) && currentQuestion.options.length > 0) {
-                    choicesList = currentQuestion.options.map((opt: string) => ({
-                      text: opt,
-                    }));
-                  } else {
-                    // If no choices found, show empty state
-                    return (
-                      <div className="alert alert-warning">
-                        No answer choices available for this question
-                      </div>
-                    );
+                    choicesList = currentQuestion.options.map((opt: string) => ({ text: opt }));
                   }
 
                   return choicesList.map((choice: any, idx: number) => {
-                    // Safely extract text from choice
-                    const choiceText = typeof choice === 'string' ? choice : (choice?.text || `Option ${idx + 1}`);
-                    const selected = answers[questionId] === choiceText;
+                    const choiceText = typeof choice === "string" ? choice : (choice?.text || `Option ${idx + 1}`);
+                    
+                    // Handle multiple answers vs single answer
+                    const currentAnswerValue = answers[questionId];
+                    let isSelected = false;
+                    
+                    if (allowMultipleAnswers) {
+                      // For multiple answers, check if this choice is in the array
+                      isSelected = Array.isArray(currentAnswerValue) 
+                        ? currentAnswerValue.includes(choiceText)
+                        : false;
+                    } else {
+                      // For single answer, check equality
+                      isSelected = currentAnswerValue === choiceText;
+                    }
 
                     return (
-                      <div key={idx} className="mb-3 p-2 border rounded" style={{ cursor: 'pointer' }}>
+                      <div
+                        key={idx}
+                        className={`mb-3 p-3 border rounded`}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          if (allowMultipleAnswers) {
+                            // Toggle this choice in the array
+                            const currentAnswers = Array.isArray(answers[questionId]) 
+                              ? [...answers[questionId]] 
+                              : [];
+                            
+                            if (currentAnswers.includes(choiceText)) {
+                              // Remove if already selected
+                              handleAnswerChange(currentAnswers.filter(a => a !== choiceText));
+                            } else {
+                              // Add if not selected
+                              handleAnswerChange([...currentAnswers, choiceText]);
+                            }
+                          } else {
+                            // Single answer mode
+                            handleAnswerChange(choiceText);
+                          }
+                        }}
+                      >
                         <Form.Check
-                          type="radio"
+                          type={allowMultipleAnswers ? "checkbox" : "radio"}
                           id={`choice-${questionId}-${idx}`}
                           name={`question-${questionId}`}
                           label={choiceText}
-                          checked={selected}
-                          onChange={() => handleAnswerChange(choiceText)}
+                          checked={isSelected}
+                          onChange={() => {
+                            if (allowMultipleAnswers) {
+                              // Toggle logic
+                              const currentAnswers = Array.isArray(answers[questionId]) 
+                                ? [...answers[questionId]] 
+                                : [];
+                              
+                              if (currentAnswers.includes(choiceText)) {
+                                handleAnswerChange(currentAnswers.filter(a => a !== choiceText));
+                              } else {
+                                handleAnswerChange([...currentAnswers, choiceText]);
+                              }
+                            } else {
+                              handleAnswerChange(choiceText);
+                            }
+                          }}
                           className="fs-5"
+                          style={{ cursor: "pointer" }}
                         />
                       </div>
                     );
                   });
                 })()}
+                {allowMultipleAnswers && (
+                  <div className="mt-2 text-muted small">
+                    <em>Select all that apply (multiple answers allowed)</em>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TRUE/FALSE - Clickable boxes */}
+            {questionType === "true-false" && (
+              <div>
+                {[true, false].map((value) => {
+                  const selected = answers[questionId] === value;
+                  return (
+                    <div
+                      key={value.toString()}
+                      className={`mb-3 p-3 border rounded`}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => handleAnswerChange(value)}
+                    >
+                      <Form.Check
+                        type="radio"
+                        id={`tf-${questionId}-${value}`}
+                        name={`question-${questionId}`}
+                        label={value ? "True" : "False"}
+                        className="fs-5"
+                        checked={selected}
+                        onChange={() => handleAnswerChange(value)}
+                        style={{ cursor: "pointer" }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* FILL IN THE BLANKS - Multiple blanks support */}
+            {questionType === "fill-in-blank" && (
+              <div>
+                {Array.isArray(currentQuestion.blanks) && currentQuestion.blanks.length > 1 ? (
+                  // Multiple blanks - show separate input for each
+                  <div>
+                    <p className="text-muted small mb-3">Fill in each blank below (partial credit available):</p>
+                    {currentQuestion.blanks.map((blank: any, index: number) => {
+                      const currentAnswers = answers[questionId] || {};
+                      return (
+                        <div key={index} className="mb-3">
+                          <Form.Label className="fw-semibold">Blank [{index + 1}]:</Form.Label>
+                          <Form.Control
+                            type="text"
+                            value={currentAnswers[index] || ""}
+                            onChange={(e) => handleBlankAnswerChange(index, e.target.value)}
+                            placeholder={`Answer for blank ${index + 1}`}
+                            style={{ maxWidth: "400px" }}
+                            className="fs-5"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  // Single blank - show one input
+                  <div>
+                    <Form.Label className="fw-semibold">Your Answer:</Form.Label>
+                    <Form.Control
+                      type="text"
+                      value={answers[questionId] ?? ""}
+                      onChange={(e) => handleAnswerChange(e.target.value)}
+                      placeholder="Type your answer here"
+                      style={{ maxWidth: "400px" }}
+                      className="fs-5"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
 
           {/* Navigation Buttons */}
           <div className="d-flex justify-content-between mb-4">
-            <Button
-              variant="secondary"
-              onClick={handlePrevious}
-              disabled={currentQuestionIndex === 0}
-              size="lg"
-            >
+            <Button variant="secondary" onClick={handlePrevious} disabled={currentQuestionIndex === 0} size="lg">
               ← Previous
             </Button>
             {currentQuestionIndex < quiz.questions.length - 1 ? (
@@ -600,89 +623,67 @@ export default function QuizTakingPage() {
                 Next →
               </Button>
             ) : (
-              <Button
-                variant="danger"
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                size="lg"
-              >
+              <Button variant="danger" onClick={handleSubmit} disabled={isSubmitting} size="lg">
                 {isSubmitting ? "Submitting..." : "Submit Quiz"}
               </Button>
             )}
           </div>
 
-          {/* Auto-save indicator */}
           <div className="text-center text-muted mb-3">
             <small>✓ Your answers are being saved automatically</small>
           </div>
         </div>
 
-        {/* Sidebar - Question Navigation & Timer */}
+        {/* Sidebar */}
         <div className="col-md-4">
-          <div
-            className="border rounded p-3 bg-white position-sticky shadow-sm"
-            style={{ top: "20px" }}
-          >
-            {/* Timer Display in Sidebar */}
+          <div className="border rounded p-3 bg-white position-sticky shadow-sm" style={{ top: "20px" }}>
             {timeRemaining !== null && (
-              <Card className={`mb-3 ${timeRemaining < 300 ? 'border-danger' : 'border-primary'}`}>
+              <Card className={`mb-3 ${timeRemaining < 300 ? "border-danger" : "border-primary"}`}>
                 <Card.Body className="text-center p-3">
                   <h6 className="mb-2">Time Remaining</h6>
-                  <div 
-                    className={`fs-2 fw-bold ${timeRemaining < 300 ? 'text-danger' : 'text-primary'}`}
-                    style={{ fontFamily: 'monospace' }}
-                  >
+                  <div className={`fs-2 fw-bold ${timeRemaining < 300 ? "text-danger" : "text-primary"}`} style={{ fontFamily: "monospace" }}>
                     {formatTime(timeRemaining)}
                   </div>
                   {timeRemaining < 120 && (
-                    <small className="text-danger fw-bold">
-                      Time is running out!
-                    </small>
+                    <small className="text-danger fw-bold">Time is running out!</small>
                   )}
                 </Card.Body>
               </Card>
             )}
-            
+
             <h6 className="mb-3">Questions</h6>
             <div className="d-grid gap-2">
               {quiz.questions.map((q: any, idx: number) => {
-                const isAnswered = answers[idx.toString()] !== undefined && 
-                                  answers[idx.toString()] !== "" && 
-                                  answers[idx.toString()] !== null;
+                const answered = isAnswered(idx);
                 const isCurrent = idx === currentQuestionIndex;
 
                 return (
                   <Button
                     key={idx}
-                    variant={isCurrent ? "danger" : isAnswered ? "success" : "outline-secondary"}
+                    variant={isCurrent ? "outline-primary" : answered ? "outline-success" : "outline-secondary"}
                     onClick={() => setCurrentQuestionIndex(idx)}
                     className="text-start"
                   >
-                    {isAnswered ? "✓ " : "○ "}
+                    {answered ? "✓ " : "○ "}
                     Question {idx + 1}
-                    <span className="float-end badge bg-light text-dark">
-                      {getQuestionType(q) === "multiple-choice" && "MC"}
-                      {getQuestionType(q) === "true-false" && "TF"}
-                      {getQuestionType(q) === "fill-in-blank" && "FB"}
-                    </span>
                   </Button>
                 );
               })}
             </div>
-            
+
             <hr />
-            
+
             <div className="text-center">
-              <strong className={
-                Object.keys(answers).filter(key => {
-                  const val = answers[key];
-                  return val !== undefined && val !== "" && val !== null;
-                }).length === quiz.questions.length ? "text-success" : "text-muted"
-              }>
-                Answered: {Object.keys(answers).filter(key => {
-                  const val = answers[key];
-                  return val !== undefined && val !== "" && val !== null;
-                }).length} / {quiz.questions.length}
+              <strong
+                className={
+                  Object.keys(answers).filter((key) => isAnswered(parseInt(key))).length ===
+                  quiz.questions.length
+                    ? "text-success"
+                    : "text-muted"
+                }
+              >
+                Answered: {Object.keys(answers).filter((key) => isAnswered(parseInt(key))).length} /{" "}
+                {quiz.questions.length}
               </strong>
             </div>
           </div>

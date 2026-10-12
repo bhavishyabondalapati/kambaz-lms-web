@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from "react";
-import { Button } from "react-bootstrap";
+import { Button, Badge } from "react-bootstrap";
 import QuestionEditor from "./QuestionEditor";
 
 interface QuizQuestionsEditorProps {
@@ -20,13 +20,24 @@ export default function QuizQuestionsEditor({
 }: QuizQuestionsEditorProps) {
   const [questions, setQuestions] = useState<any[]>([]);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [originalQuestions, setOriginalQuestions] = useState<any[]>([]);
 
   useEffect(() => {
     if (quiz?.questions) {
       // Deep copy to avoid mutation
-      setQuestions(JSON.parse(JSON.stringify(quiz.questions)));
+      const questionsCopy = JSON.parse(JSON.stringify(quiz.questions));
+      setQuestions(questionsCopy);
+      setOriginalQuestions(JSON.parse(JSON.stringify(quiz.questions)));
     }
   }, [quiz]);
+
+  // 👉 Helper: map internal type to display label
+  const getQuestionTypeLabel = (type: string | undefined) => {
+    const t = (type || "").toLowerCase();
+    if (t.includes("true") || t.includes("false")) return "True/False";
+    if (t.includes("fill") || t.includes("blank")) return "Fill in the Blank";
+    return "Multiple Choice"; // default
+  };
 
   const handleAddQuestion = () => {
     const newQuestion = {
@@ -36,13 +47,24 @@ export default function QuizQuestionsEditor({
       points: 4,
       question: "",
       choices: [
-        { text: "", correct: false },
+        { text: "", correct: true },
         { text: "", correct: false },
         { text: "", correct: false },
       ],
+      allowMultipleAnswers: false,
     };
-    setQuestions((prev) => [...prev, newQuestion]);
+    const newQuestions = [...questions, newQuestion];
+    setQuestions(newQuestions);
     setEditingQuestionId(newQuestion._id);
+
+    // Notify parent
+    if (onChange) {
+      onChange({
+        ...quiz,
+        questions: newQuestions,
+        points: newQuestions.reduce((sum, q) => sum + (q.points || 0), 0),
+      });
+    }
   };
 
   const handleUpdateQuestion = (questionId: string, updatedQuestion: any) => {
@@ -51,7 +73,13 @@ export default function QuizQuestionsEditor({
     );
     setQuestions(newQuestions);
     setEditingQuestionId(null);
-    
+
+    // Update original questions
+    setOriginalQuestions((prev) =>
+      prev.map((q) => (q._id === questionId ? { ...updatedQuestion } : q))
+    );
+
+    // Notify parent
     if (onChange) {
       onChange({
         ...quiz,
@@ -70,7 +98,11 @@ export default function QuizQuestionsEditor({
     const newQuestions = questions.filter((q) => q._id !== questionId);
     setQuestions(newQuestions);
     setEditingQuestionId(null);
-    
+
+    // Update original questions
+    setOriginalQuestions((prev) => prev.filter((q) => q._id !== questionId));
+
+    // Notify parent
     if (onChange) {
       onChange({
         ...quiz,
@@ -81,22 +113,42 @@ export default function QuizQuestionsEditor({
   };
 
   const handleCancelEdit = () => {
-  // If it's a temp question (being created), remove it
-  if (editingQuestionId?.startsWith("temp_")) {
-    setQuestions((prev) => prev.filter((q) => q._id !== editingQuestionId));
-  } else {
-    // If it's an existing question, restore original data from quiz
-    if (quiz?.questions) {
-      const originalQuestion = quiz.questions.find((q: any) => q._id === editingQuestionId);
+    // If it's a temp question (being created), remove it
+    if (editingQuestionId?.startsWith("temp_")) {
+      const newQuestions = questions.filter((q) => q._id !== editingQuestionId);
+      setQuestions(newQuestions);
+
+      // Notify parent about the change
+      if (onChange) {
+        onChange({
+          ...quiz,
+          questions: newQuestions,
+          points: newQuestions.reduce((sum, q) => sum + (q.points || 0), 0),
+        });
+      }
+    } else {
+      // If it's an existing question, restore original data
+      const originalQuestion = originalQuestions.find(
+        (q: any) => q._id === editingQuestionId
+      );
       if (originalQuestion) {
-        setQuestions((prev) =>
-          prev.map((q) => (q._id === editingQuestionId ? { ...originalQuestion } : q))
+        const newQuestions = questions.map((q) =>
+          q._id === editingQuestionId ? { ...originalQuestion } : q
         );
+        setQuestions(newQuestions);
+
+        // Notify parent about the change
+        if (onChange) {
+          onChange({
+            ...quiz,
+            questions: newQuestions,
+            points: newQuestions.reduce((sum, q) => sum + (q.points || 0), 0),
+          });
+        }
       }
     }
-  }
-  setEditingQuestionId(null);
-};
+    setEditingQuestionId(null);
+  };
 
   const handleSave = () => {
     const updatedQuiz = {
@@ -119,15 +171,22 @@ export default function QuizQuestionsEditor({
   
   return (
     <div className="quiz-questions-editor">
+      {/* New Question Button */}
       <div className="text-center mb-4">
-        <Button variant="outline-secondary" onClick={handleAddQuestion} className="px-4 py-2">
+        <Button
+          variant="outline-secondary"
+          onClick={handleAddQuestion}
+          className="px-4 py-2"
+        >
           + New Question
         </Button>
       </div>
 
+      {/* Questions List */}
       {questions.length === 0 && editingQuestionId === null ? (
         <div className="alert alert-info text-center">
-          No questions yet. Click &quot;+ New Question&quot; to add your first question.
+          No questions yet. Click &quot;+ New Question&quot; to add your first
+          question.
         </div>
       ) : (
         <div className="questions-list mb-4">
@@ -148,19 +207,22 @@ export default function QuizQuestionsEditor({
                     <div className="flex-grow-1">
                       <div className="d-flex align-items-center gap-2 mb-2">
                         <h6 className="mb-0">
-                          Question {index + 1}: {question.title}
+                          {index + 1}. {question.title}
                         </h6>
-                        <span className="badge bg-secondary">
-                          {question.type === "multiple-choice" && "Multiple Choice"}
-                          {question.type === "true-false" && "True/False"}
-                          {question.type === "fill-in-blank" && "Fill in the Blank"}
+
+                        {/* 👉 Show type + points */}
+                        <Badge bg="light" text="dark">
+                          {getQuestionTypeLabel(question.type)}
+                        </Badge>
+                        <span className="text-muted">
+                          ({question.points} pts)
                         </span>
-                        <span className="text-muted">({question.points} pts)</span>
                       </div>
                       <div
                         className="question-preview mt-2"
                         dangerouslySetInnerHTML={{
-                          __html: question.question || "<em>No question text</em>",
+                          __html:
+                            question.question || "<em>No question text</em>",
                         }}
                         style={{ color: "#666" }}
                       />
@@ -189,14 +251,24 @@ export default function QuizQuestionsEditor({
         </div>
       )}
 
+      {/* Action Buttons */}
       <div className="d-flex justify-content-end gap-2 pt-3 border-top">
-        <Button variant="light" onClick={onCancel} className="px-4" style={{ border: "1px solid #ccc" }}>
+        <Button
+          variant="light"
+          onClick={onCancel}
+          className="px-4"
+          style={{ border: "1px solid #ccc" }}
+        >
           Cancel
         </Button>
         <Button variant="danger" onClick={handleSave} className="px-4">
           Save
         </Button>
-        <Button variant="outline-danger" onClick={handleSaveAndPublish} className="px-4">
+        <Button
+          variant="outline-danger"
+          onClick={handleSaveAndPublish}
+          className="px-4"
+        >
           Save &amp; Publish
         </Button>
       </div>

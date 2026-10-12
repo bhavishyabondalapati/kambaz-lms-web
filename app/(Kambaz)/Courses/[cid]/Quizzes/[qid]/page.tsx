@@ -156,7 +156,6 @@ export default function QuizDetailsPage() {
     return { can: true, reason: "Take the Quiz", isResume: false as const };
   };
 
-  // FIXED: Navigate to /take page instead of /attempt/[id]
   const handleTakeQuiz = () => {
     if (!quiz) return;
 
@@ -168,6 +167,42 @@ export default function QuizDetailsPage() {
   };
 
   const quizStatus = canTakeQuiz();
+
+  // Get the highest scoring attempt
+  const getHighestAttempt = () => {
+    if (attempts.length === 0) return null;
+    
+    const gradedAttempts = attempts.filter(
+      (a) => a.status === "GRADED" || a.status === "SUBMITTED"
+    );
+    
+    if (gradedAttempts.length === 0) return null;
+    
+    // Find the attempt with the highest score
+    return gradedAttempts.reduce((highest, current) => {
+      // Calculate percentage for comparison
+      const highestPercentage = (highest.score / highest.totalPoints) * 100;
+      const currentPercentage = (current.score / current.totalPoints) * 100;
+      
+      return currentPercentage > highestPercentage ? current : highest;
+    }, gradedAttempts[0]);
+  };
+
+  // Get the latest attempt (most recent)
+  const getLatestAttempt = () => {
+    if (attempts.length === 0) return null;
+    
+    const gradedAttempts = attempts.filter(
+      (a) => a.status === "GRADED" || a.status === "SUBMITTED"
+    );
+    
+    if (gradedAttempts.length === 0) return null;
+    
+    // Sort by submittedAt date (most recent first)
+    return [...gradedAttempts].sort((a, b) => 
+      new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+    )[0];
+  };
 
   if (loading) {
     return (
@@ -189,7 +224,9 @@ export default function QuizDetailsPage() {
   const submittedAttempts = attempts.filter(
     (a) => a.status === "GRADED" || a.status === "SUBMITTED"
   );
-  const latestAttempt = submittedAttempts[0]; // Most recent
+  
+  const highestAttempt = getHighestAttempt();
+  const latestAttempt = getLatestAttempt();
 
   return (
     <Container className="mt-4" style={{ maxWidth: "1000px" }}>
@@ -197,13 +234,13 @@ export default function QuizDetailsPage() {
       {isFaculty && (
         <div className="d-flex gap-2 mb-4">
           <Button
-            variant={quiz.published ? "success" : "outline-secondary"}
+            variant={quiz.published ? "outline-secondary" : "success"}
             onClick={handleTogglePublish}
           >
             {quiz.published ? "Unpublish" : "Publish"}
           </Button>
           <Button
-            variant="outline-secondary"
+            variant="outline-primary"
             onClick={() =>
               router.push(`/Courses/${cid}/Quizzes/${qid}/preview`)
             }
@@ -211,7 +248,7 @@ export default function QuizDetailsPage() {
             Preview
           </Button>
           <Button
-            variant="outline-secondary"
+            variant="outline-danger"
             onClick={() =>
               router.push(`/Courses/${cid}/Quizzes/${qid}/editor`)
             }
@@ -286,34 +323,45 @@ export default function QuizDetailsPage() {
                   <tr>
                     <th></th>
                     <th>Attempt</th>
+                    <th>Submitted</th>
                     <th>Time</th>
                     <th>Score</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {submittedAttempts.map((attempt, index) => (
-                    <tr key={attempt._id}>
-                      <td>
-                        {index === 0 && <Badge bg="primary">LATEST</Badge>}
-                      </td>
-                      <td>
-                        <Button
-                          variant="link"
-                          onClick={() =>
-                            router.push(
-                              `/Courses/${cid}/Quizzes/${qid}/attempt/${attempt._id}`
-                            )
-                          }
-                        >
-                          Attempt {attempt.attemptNumber}
-                        </Button>
-                      </td>
-                      <td>{formatTime(attempt.timeSpent || 0)}</td>
-                      <td>
-                        {attempt.score} out of {attempt.totalPoints}
-                      </td>
-                    </tr>
-                  ))}
+                  {submittedAttempts
+                    .sort((a, b) => b.attemptNumber - a.attemptNumber)
+                    .map((attempt) => {
+                      const isHighest = highestAttempt?._id === attempt._id;
+                      const isLatest = latestAttempt?._id === attempt._id;
+                      
+                      return (
+                        <tr key={attempt._id}>
+                          <td>
+                            {isLatest && <Badge bg="primary" className="me-1">LATEST</Badge>}
+                            {isHighest && <Badge bg="success">HIGHEST</Badge>}
+                          </td>
+                          <td>
+                            <Button
+                              variant="link"
+                              onClick={() =>
+                                router.push(
+                                  `/Courses/${cid}/Quizzes/${qid}/attempt/${attempt._id}`
+                                )
+                              }
+                            >
+                              Attempt {attempt.attemptNumber}
+                            </Button>
+                          </td>
+                          <td>{formatDateTime(attempt.submittedAt)}</td>
+                          <td>{formatTime(attempt.timeSpent || 0)}</td>
+                          <td>
+                            {attempt.score} out of {attempt.totalPoints} 
+                            {isHighest && <span className="text-success ms-2">✓</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </Table>
             </div>
@@ -448,28 +496,51 @@ export default function QuizDetailsPage() {
         </div>
 
         {/* Right Column - Submission Details Sidebar (Students Only) */}
-        {isStudent && latestAttempt && (
+        {isStudent && (
           <div className="col-md-4">
             <div className="border rounded p-3 bg-light">
               <h6 className="fw-bold mb-3">Submission details:</h6>
-              <div className="mb-2">
-                <strong>Time:</strong>{" "}
-                <span className="float-end">
-                  {formatTime(latestAttempt.timeSpent || 0)}
-                </span>
-              </div>
-              <div className="mb-2">
-                <strong>Current score:</strong>{" "}
-                <span className="float-end">
-                  {latestAttempt.score} out of {latestAttempt.totalPoints}
-                </span>
-              </div>
-              <div className="mb-2">
-                <strong>Kept score:</strong>{" "}
-                <span className="float-end">
-                  {latestAttempt.score} out of {latestAttempt.totalPoints}
-                </span>
-              </div>
+              
+              {latestAttempt && (
+                <>
+                  <div className="mb-2">
+                    <strong>Time spent:</strong>{" "}
+                    <span className="float-end">
+                      {formatTime(latestAttempt.timeSpent || 0)}
+                    </span>
+                  </div>
+                  <div className="mb-2">
+                    <strong>Latest score:</strong>{" "}
+                    <span className="float-end">
+                      {latestAttempt.score} out of {latestAttempt.totalPoints}
+                    </span>
+                  </div>
+                </>
+              )}
+              
+              {highestAttempt && (
+                <div className="mb-2">
+                  <strong>Kept score (highest):</strong>{" "}
+                  <span className="float-end text-success fw-bold">
+                    {highestAttempt.score} out of {highestAttempt.totalPoints}
+                  </span>
+                </div>
+              )}
+              
+              {submittedAttempts.length > 0 && (
+                <div className="mb-2">
+                  <strong>Attempts used:</strong>{" "}
+                  <span className="float-end">
+                    {submittedAttempts.length} of {attemptsAllowed}
+                  </span>
+                </div>
+              )}
+              
+              {!submittedAttempts.length && (
+                <div className="text-center text-muted">
+                  <small>No attempts submitted yet</small>
+                </div>
+              )}
             </div>
           </div>
         )}
